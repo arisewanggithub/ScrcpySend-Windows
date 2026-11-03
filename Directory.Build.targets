@@ -1,0 +1,11 @@
+<Project>
+  <Target Name="ValidateWindowsArchitecture" BeforeTargets="PrepareForBuild"
+          Condition="'$(MSBuildProjectName)' == 'ScrcpySend.App' Or '$(MSBuildProjectName)' == 'ScrcpySend.Media' Or '$(MSBuildProjectName)' == 'ScrcpySend.Diagnostics'">
+    <Error Condition="'$(RuntimeIdentifier)' != '' And '$(RuntimeIdentifier)' != 'win-arm64' And '$(RuntimeIdentifier)' != 'win-x64'"
+           Text="Only win-arm64 and win-x64 runtime identifiers are supported." />
+    <Error Condition="'$(RuntimeIdentifier)' == 'win-arm64' And '$(Platform)' == 'x64'"
+           Text="Platform x64 conflicts with RuntimeIdentifier win-arm64." />
+    <Error Condition="'$(RuntimeIdentifier)' == 'win-x64' And '$(Platform)' == 'ARM64'"
+           Text="Platform ARM64 conflicts with RuntimeIdentifier win-x64." />
+  </Target>
+</Project>

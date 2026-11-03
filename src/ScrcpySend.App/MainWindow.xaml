@@ -1,0 +1,97 @@
+<Window
+    x:Class="ScrcpySend.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="ScrcpySend for Windows">
+    <Grid x:Name="LayoutRoot">
+        <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <ScrollViewer x:Name="SettingsScroll" Grid.Row="0" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Padding="32,24,32,16" Spacing="16" MaxWidth="800" HorizontalAlignment="Stretch">
+            <TextBlock x:Name="Heading" Text="ScrcpySend for Windows" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" />
+            <TextBlock x:Name="PlatformLabel" Text="Hardware video · Trusted private LAN only" TextWrapping="Wrap" />
+            <InfoBar x:Name="Problem" IsOpen="False" IsClosable="True" Severity="Error" />
+            <Button x:Name="ChooseSource" Content="Choose a display or window…" Click="ChooseSource_Click" />
+            <TextBlock x:Name="SourceLabel" Text="No capture source selected." TextWrapping="Wrap" />
+            <ComboBox x:Name="Receivers" Header="Receiver" HorizontalAlignment="Stretch"
+                      PlaceholderText="Select a receiver" SelectionChanged="Receivers_SelectionChanged" />
+            <TextBlock x:Name="DiscoveryStatus" Text="No receivers discovered." TextWrapping="Wrap" Opacity="0.75" />
+            <StackPanel x:Name="ManualEntry" Spacing="8" Visibility="Collapsed">
+                <TextBlock Text="Enter the IP address shown by ScrcpyRecv. The example below is not an entered address."
+                           TextWrapping="Wrap" Opacity="0.75" />
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="130" /></Grid.ColumnDefinitions>
+                    <StackPanel Spacing="4">
+                        <TextBox x:Name="ManualAddress" Header="Receiver IP address" PlaceholderText="Example: 192.168.1.25"
+                                 TextChanged="Settings_TextChanged" LostFocus="ManualAddress_LostFocus" />
+                        <TextBlock x:Name="ManualAddressError" Visibility="Collapsed" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <TextBox x:Name="ManualPort" Header="TCP port" Text="27184" InputScope="Number"
+                                 TextChanged="Settings_TextChanged" LostFocus="ManualPort_LostFocus" />
+                        <TextBlock x:Name="ManualPortError" Visibility="Collapsed" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+            <TextBlock x:Name="ReceiverError" Visibility="Collapsed" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <StackPanel Spacing="4">
+                    <TextBox x:Name="MaxSize" Header="Maximum dimension (px)" Text="1920" InputScope="Number"
+                             TextChanged="Settings_TextChanged" />
+                    <TextBlock x:Name="DimensionError" Visibility="Collapsed" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="4">
+                    <ComboBox x:Name="MaxFps" Header="FPS cap" HorizontalAlignment="Stretch"
+                              SelectionChanged="Settings_SelectionChanged" />
+                    <TextBlock x:Name="FpsError" Visibility="Collapsed" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="4">
+                    <TextBox x:Name="Bitrate" Header="Video bitrate (Mbps)" Text="8" InputScope="Number"
+                             TextChanged="Settings_TextChanged" />
+                    <TextBlock x:Name="BitrateError" Visibility="Collapsed" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+            <ComboBox x:Name="VideoCodec" Header="Video codec (hardware only)" SelectedIndex="0"
+                      SelectionChanged="Settings_SelectionChanged">
+                <ComboBoxItem Content="H.264 / AVC" Tag="h264" />
+                <ComboBoxItem Content="H.265 / HEVC" Tag="h265" />
+                <ComboBoxItem Content="AV1" Tag="av1" />
+            </ComboBox>
+            <ComboBox x:Name="MediaTransport" Header="Media transport" SelectedIndex="0"
+                      SelectionChanged="Settings_SelectionChanged">
+                <ComboBoxItem Content="Custom TCP / PCM audio" Tag="tcp" />
+                <ComboBoxItem Content="SRT / fragmented MP4 / AAC-LC audio" Tag="srt" />
+            </ComboBox>
+            <ComboBox x:Name="ReceiverOrientation" Header="Receiver orientation" SelectedIndex="0"
+                      SelectionChanged="Settings_SelectionChanged">
+                <ComboBoxItem Content="Automatic" Tag="auto" />
+                <ComboBoxItem Content="Landscape" Tag="landscape" />
+                <ComboBoxItem Content="Portrait" Tag="portrait" />
+            </ComboBox>
+            <TextBlock Text="Custom TCP audio is uncompressed PCM (1.536 Mbps). SRT audio is AAC-LC (192 kbps). SRT requires an SRT-enabled ScrcpyRecv."
+                       TextWrapping="Wrap" Opacity="0.75" />
+            <CheckBox x:Name="EnableAudio" Content="Enable receiver-only audio" IsChecked="False"
+                      Checked="EnableAudio_Changed" Unchecked="EnableAudio_Changed" />
+            <TextBlock Text="Off: sound stays on this PC. On: local playback stays muted while audio is sent to the receiver. Windows volume adjustments do not stop casting; controls that unmute locally are suppressed until Stop, then your latest volume/mute choice is preserved. Changing output devices stops the cast. Use Stop normally: force termination may leave outputs muted."
+                       TextWrapping="Wrap" Opacity="0.75" />
+            <TextBlock Text="No authentication or encryption. Do not expose the receiver port to the internet."
+                       TextWrapping="Wrap" Opacity="0.75" />
+        </StackPanel>
+        </ScrollViewer>
+        <Border x:Name="FooterHost" Grid.Row="1" Padding="24,16" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <Grid x:Name="CastFooter" MaxWidth="800" ColumnSpacing="16" RowSpacing="8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Button x:Name="Play" Content="Play" Style="{StaticResource AccentButtonStyle}" Click="Play_Click" />
+                    <Button x:Name="Stop" Content="Stop" IsEnabled="False" Click="Stop_Click" />
+                </StackPanel>
+                <TextBlock x:Name="Status" Grid.Column="1" Text="Idle" VerticalAlignment="Center"
+                           Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
+                <TextBlock x:Name="EncoderLabel" Grid.Row="1" Grid.ColumnSpan="2"
+                           Text="Hardware encoder has not been checked yet." TextWrapping="Wrap" Opacity="0.75" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
