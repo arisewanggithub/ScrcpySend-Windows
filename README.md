@@ -114,6 +114,10 @@ AV1 and HEVC are not guaranteed on every x64 PC.
 CI builds/tests/packages ARM64 and x64 separately. These remain unsigned portable
 packages, not MSIX/Store packages. Store association and certification are a
 separate step.
+An approval-gated **Microsoft Store** workflow can build ARM64/x64 MSIX packages
+and submit updates after Partner Center setup. See [STORE.md](STORE.md) for
+identity variables, environment secrets, first-submission requirements and
+manual versus immediate publication. Portable builds are unchanged.
 PRs targeting `main` run the read-only **Windows PR CI** workflow, with pinned
 actions, tests and self-contained untrimmed packages for both architectures.
 The stable **PR build gate** fails if either architecture fails, is cancelled

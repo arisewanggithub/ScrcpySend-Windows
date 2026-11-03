@@ -37,6 +37,15 @@ jobs:
         run: .\tools\PrepareSrt.ps1 -Architecture ${{ matrix.architecture }}
       - name: Package app
         run: .\tools\Publish.ps1 -Architecture ${{ matrix.architecture }}
+      - name: Validate unsigned MSIX packaging without Store credentials
+        run: .\tools\TestStorePackaging.ps1 -Architecture ${{ matrix.architecture }} -PublishedDirectory .\artifacts\win-${{ matrix.architecture }}
+      - name: Retain test-identity MSIX for submission regression
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: Validation-msix-${{ matrix.architecture }}-${{ github.run_id }}
+          path: artifacts\msix-validation-${{ matrix.architecture }}\ScrcpySend-${{ matrix.architecture }}.msix
+          retention-days: 7
+          if-no-files-found: error
       - name: Retain test diagnostics
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
@@ -52,9 +61,33 @@ jobs:
           path: artifacts\ScrcpySend-Windows-${{ matrix.architecture }}-dev.zip
           retention-days: 14
           if-no-files-found: error
+  store-tests:
+    name: MSIX bundle and mocked Store submission
+    needs: [build]
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: Validation-msix-*-${{ github.run_id }}
+          merge-multiple: true
+          path: validation-packages
+      - name: Restore pinned packaging tool
+        run: dotnet restore .\src\ScrcpySend.App\ScrcpySend.App.csproj -r win-x64 -p:Platform=x64
+      - name: Validate bundle and mocked submission
+        run: |
+          .\tools\BundleStore.ps1 -Arm64Package .\validation-packages\ScrcpySend-arm64.msix `
+            -X64Package .\validation-packages\ScrcpySend-x64.msix -OutputDirectory .\artifacts\validation-bundle -Version 1.0.0.0
+          .\tools\TestStoreSubmission.ps1 -BundlePath .\artifacts\validation-bundle\ScrcpySend.msixbundle
   gate:
     name: PR build gate
-    needs: [build]
+    needs: [build, store-tests]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -62,8 +95,9 @@ jobs:
       - name: Require both architecture builds
         env:
           BUILD_RESULT: ${{ needs.build.result }}
+          STORE_TEST_RESULT: ${{ needs.store-tests.result }}
         run: |
-          if [ "$BUILD_RESULT" != success ]; then
-            echo "::error::ARM64 and x64 validation must both succeed (result: $BUILD_RESULT)."
+          if [ "$BUILD_RESULT" != success ] || [ "$STORE_TEST_RESULT" != success ]; then
+            echo "::error::Both architecture builds and Store packaging regressions must succeed (build: $BUILD_RESULT, store: $STORE_TEST_RESULT)."
             exit 1
           fi

@@ -1,0 +1,157 @@
+name: Microsoft Store
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version (MAJOR.MINOR.PATCH.0), greater than the existing Store version'
+        required: true
+        default: '1.0.0.0'
+      submit:
+        description: 'Submit to Partner Center after environment approval (requires initial published submission)'
+        type: boolean
+        default: false
+      publish_mode:
+        description: 'Manual holds after certification; Immediate publishes after certification'
+        type: choice
+        options: [Manual, Immediate]
+        default: Manual
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: scrcpysend-microsoft-store
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require main and its successful PR gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORE_PACKAGE_NAME: ${{ vars.STORE_PACKAGE_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo "::error::Run Store workflow on main only."; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.0$ ]] || { echo "::error::Use MAJOR.MINOR.PATCH.0."; exit 1; }
+          for name in STORE_PACKAGE_NAME STORE_PUBLISHER STORE_PUBLISHER_DISPLAY_NAME; do
+            [[ -n "${!name}" ]] || { echo "::error::Configure $name from Partner Center Product Identity."; exit 1; }
+          done
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?filter=latest" \
+            --jq '[.check_runs[] | select(.name == "PR build gate" and .app.id == 15368 and .conclusion == "success")] | length' \
+            | grep -Eq '^[1-9][0-9]*$' || { echo "::error::This main commit must pass PR build gate first."; exit 1; }
+  package:
+    needs: [preflight]
+    name: Store package (${{ matrix.architecture }})
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: arm64
+            runner: windows-11-arm
+          - architecture: x64
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Validate source and prepare native libraries
+        run: |
+          dotnet test .\tests\ScrcpySend.Tests\ScrcpySend.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
+          .\tools\PrepareSrt.ps1 -Architecture ${{ matrix.architecture }}
+      - name: Publish self-contained untrimmed app
+        run: .\tools\Publish.ps1 -Architecture ${{ matrix.architecture }}
+      - name: Package exact Store identity
+        env:
+          STORE_PACKAGE_NAME: ${{ vars.STORE_PACKAGE_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+          STORE_VERSION: ${{ inputs.version }}
+        run: |
+          .\tools\PackageStore.ps1 -Architecture ${{ matrix.architecture }} `
+            -PublishedDirectory .\artifacts\win-${{ matrix.architecture }} `
+            -OutputDirectory .\artifacts\store-${{ matrix.architecture }} -Version $env:STORE_VERSION
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: Store-msix-${{ matrix.architecture }}-${{ github.run_id }}
+          path: artifacts\store-${{ matrix.architecture }}\ScrcpySend-${{ matrix.architecture }}.msix
+          if-no-files-found: error
+          retention-days: 14
+  bundle:
+    needs: [package]
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: Store-msix-*-${{ github.run_id }}
+          merge-multiple: true
+          path: packages
+      - name: Restore pinned packaging tool
+        run: dotnet restore .\src\ScrcpySend.App\ScrcpySend.App.csproj -r win-x64 -p:Platform=x64
+      - name: Create ARM64/x64 Store bundle
+        env:
+          STORE_VERSION: ${{ inputs.version }}
+        run: |
+          .\tools\BundleStore.ps1 -Arm64Package .\packages\ScrcpySend-arm64.msix `
+            -X64Package .\packages\ScrcpySend-x64.msix -OutputDirectory .\artifacts\store-bundle -Version $env:STORE_VERSION
+      - name: Recheck configured product identity
+        env:
+          STORE_PACKAGE_NAME: ${{ vars.STORE_PACKAGE_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_VERSION: ${{ inputs.version }}
+        run: |
+          . .\tools\StoreValidation.ps1
+          Assert-StoreBundle .\artifacts\store-bundle\ScrcpySend.msixbundle $env:STORE_VERSION $env:STORE_PACKAGE_NAME $env:STORE_PUBLISHER
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: Store-bundle-${{ github.run_id }}
+          path: |
+            artifacts\store-bundle\ScrcpySend.msixbundle
+            artifacts\store-bundle\bundle-sha256.json
+          if-no-files-found: error
+          retention-days: 14
+  submit:
+    needs: [bundle]
+    if: inputs.submit && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    environment: store-publish
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: Store-bundle-${{ github.run_id }}
+          path: store-bundle
+      - name: Verify bundle hash and submit
+        env:
+          STORE_APP_ID: ${{ vars.STORE_APP_ID }}
+          STORE_PACKAGE_NAME: ${{ vars.STORE_PACKAGE_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_TENANT_ID: ${{ secrets.STORE_TENANT_ID }}
+          STORE_CLIENT_ID: ${{ secrets.STORE_CLIENT_ID }}
+          STORE_CLIENT_SECRET: ${{ secrets.STORE_CLIENT_SECRET }}
+          STORE_VERSION: ${{ inputs.version }}
+          STORE_PUBLISH_MODE: ${{ inputs.publish_mode }}
+        run: |
+          $expected = (Get-Content .\store-bundle\bundle-sha256.json -Raw | ConvertFrom-Json).Hash
+          if ((Get-FileHash .\store-bundle\ScrcpySend.msixbundle -Algorithm SHA256).Hash -ne $expected) { throw 'Bundle hash mismatch.' }
+          .\tools\SubmitStore.ps1 -BundlePath .\store-bundle\ScrcpySend.msixbundle `
+            -Version $env:STORE_VERSION -PublishMode $env:STORE_PUBLISH_MODE
