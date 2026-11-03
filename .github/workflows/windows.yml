@@ -1,11 +1,22 @@
-name: Windows ARM64 and x64
+name: Windows PR CI
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
+    name: Tests and build (${{ matrix.architecture }})
+    timeout-minutes: 45
     strategy:
+      fail-fast: false
       matrix:
         include:
           - architecture: arm64
@@ -14,17 +25,45 @@ jobs:
             runner: windows-latest
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: 10.0.x
       - name: Protocol and session tests
-        run: dotnet test .\tests\ScrcpySend.Tests\ScrcpySend.Tests.csproj -c Release
+        run: dotnet test .\tests\ScrcpySend.Tests\ScrcpySend.Tests.csproj -c Release --logger trx --results-directory .\TestResults
       - name: Prepare native media
         run: .\tools\PrepareSrt.ps1 -Architecture ${{ matrix.architecture }}
       - name: Package app
         run: .\tools\Publish.ps1 -Architecture ${{ matrix.architecture }}
-      - uses: actions/upload-artifact@v4
+      - name: Retain test diagnostics
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: ScrcpySend-Windows-${{ matrix.architecture }}
+          name: ScrcpySend-tests-${{ matrix.architecture }}-${{ github.run_id }}
+          path: TestResults\*.trx
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Retain development package
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: ScrcpySend-Windows-${{ matrix.architecture }}-${{ github.sha }}-${{ github.run_id }}
           path: artifacts\ScrcpySend-Windows-${{ matrix.architecture }}-dev.zip
+          retention-days: 14
+          if-no-files-found: error
+  gate:
+    name: PR build gate
+    needs: [build]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require both architecture builds
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          if [ "$BUILD_RESULT" != success ]; then
+            echo "::error::ARM64 and x64 validation must both succeed (result: $BUILD_RESULT)."
+            exit 1
+          fi

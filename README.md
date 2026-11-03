@@ -114,6 +114,13 @@ AV1 and HEVC are not guaranteed on every x64 PC.
 CI builds/tests/packages ARM64 and x64 separately. These remain unsigned portable
 packages, not MSIX/Store packages. Store association and certification are a
 separate step.
+PRs targeting `main` run the read-only **Windows PR CI** workflow, with pinned
+actions, tests and self-contained untrimmed packages for both architectures.
+The stable **PR build gate** fails if either architecture fails, is cancelled
+or is skipped. Superseded PR runs are cancelled; main pushes and manual runs
+are also validated. Branch protection requires the gate and an up-to-date
+branch before merging. CI retains test diagnostics and unsigned development
+packages but never creates a release or uses signing/publishing secrets.
 Publishing checks the PE machine type of the executable and native media DLLs
 to reject accidentally mixed ARM64/x64 packages.
 Publish destinations must be empty: choose a new output directory for each
